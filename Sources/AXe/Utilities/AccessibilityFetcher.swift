@@ -37,21 +37,25 @@ struct AccessibilityFetcher {
         logger: AxeLogger,
         recoveryDependencies: AccessibilityRecoveryDependencies = .live
     ) async throws -> Data {
-        let simulatorSet = try await getSimulatorSet(deviceSetPath: nil, logger: logger, reporter: EmptyEventReporter.shared)
-        
+        let simulatorSet = try await PhaseTiming.measure("simulatorSet") {
+            try await getSimulatorSet(deviceSetPath: nil, logger: logger, reporter: EmptyEventReporter.shared)
+        }
+
         guard let target = simulatorSet.allSimulators.first(where: { $0.udid == simulatorUDID }) else {
             throw CLIError.simulatorNotFound(udid: simulatorUDID)
         }
 
-        return try await retryingAfterTestManagerRecovery(
-            simulatorUDID: simulatorUDID,
-            logger: logger,
-            dependencies: recoveryDependencies
-        ) {
-            if let point {
-                return try await fetchAccessibilityInfoJSONData(from: target, at: point)
+        return try await PhaseTiming.measure("axRead") {
+            try await retryingAfterTestManagerRecovery(
+                simulatorUDID: simulatorUDID,
+                logger: logger,
+                dependencies: recoveryDependencies
+            ) {
+                if let point {
+                    return try await fetchAccessibilityInfoJSONData(from: target, at: point)
+                }
+                return try await fetchFrontmostAccessibilityInfoJSONData(from: target)
             }
-            return try await fetchFrontmostAccessibilityInfoJSONData(from: target)
         }
     }
 

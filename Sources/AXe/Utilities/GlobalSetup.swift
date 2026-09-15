@@ -27,12 +27,16 @@ func performGlobalSetup(logger: AxeLogger) async throws {
     // Load essential private frameworks
     logger.info().log("Loading essential private frameworks via FBSimulatorControlFrameworkLoader...")
     do {
-        try FBSimulatorControlFrameworkLoader.essentialFrameworks.loadPrivateFrameworks(logger)
+        try await PhaseTiming.measure("essentialFrameworks") {
+            try FBSimulatorControlFrameworkLoader.essentialFrameworks.loadPrivateFrameworks(logger)
+        }
         logger.info().log("Successfully loaded essential private frameworks (according to FBSimulatorControlFrameworkLoader).")
 
         // Load Xcode frameworks (including SimulatorKit)
         logger.info().log("Loading Xcode frameworks (including SimulatorKit)...")
-        try FBSimulatorControlFrameworkLoader.xcodeFrameworks.loadPrivateFrameworks(logger)
+        try await PhaseTiming.measure("xcodeFrameworks") {
+            try FBSimulatorControlFrameworkLoader.xcodeFrameworks.loadPrivateFrameworks(logger)
+        }
         logger.info().log("Successfully loaded Xcode frameworks.")
     } catch {
         let errorMessage = "AXe could not load simulator support from the selected Xcode installation: \(error.localizedDescription)"

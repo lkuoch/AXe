@@ -25,7 +25,9 @@ extension AsyncParsableCommand {
         
         // Load essential frameworks
         do {
-            try FBSimulatorControlFrameworkLoader.essentialFrameworks.loadPrivateFrameworks(logger)
+            try await PhaseTiming.measure("essentialFrameworks") {
+                try FBSimulatorControlFrameworkLoader.essentialFrameworks.loadPrivateFrameworks(logger)
+            }
         } catch {
             logger.error().log("Failed to load simulator support: \(error.localizedDescription)")
             throw CLIError(

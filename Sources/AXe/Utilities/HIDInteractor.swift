@@ -42,7 +42,9 @@ struct HIDInteractor {
             )
         }
 
-        let simulatorSet = try await getSimulatorSet(deviceSetPath: nil, logger: logger, reporter: EmptyEventReporter.shared)
+        let simulatorSet = try await PhaseTiming.measure("simulatorSet") {
+            try await getSimulatorSet(deviceSetPath: nil, logger: logger, reporter: EmptyEventReporter.shared)
+        }
         logger.info().log("FBSimulatorSet obtained.")
 
         guard let simulator = simulatorSet.allSimulators.first(where: { $0.udid == simulatorUDID }) else {
@@ -74,7 +76,9 @@ struct HIDInteractor {
             now: Date.init,
             sleep: { delay in try await Task.sleep(for: .seconds(delay)) }
         )
-        let hid = try await getOrCreateHIDConnection(for: simulator, logger: logger)
+        let hid = try await PhaseTiming.measure("hidConnect") {
+            try await getOrCreateHIDConnection(for: simulator, logger: logger)
+        }
         let connectedBootIdentity = try HIDBroker.currentBootIdentity(simulatorUDID: simulatorUDID)
         guard HIDBroker.shouldReuseSession(
             sessionBootIdentity: bootIdentity,
