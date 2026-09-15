@@ -50,8 +50,11 @@ struct AccessibilityFetcherTests {
             .traits,
         ])
         #expect(!AccessibilityFetcher.accessibilityRequestKeys.contains(.traits))
+        // Requesting .customActions can segfault the app under test: serving it hit-tests, and on a
+        // UIPickerView that walks recycled cells. The key keeps its public value as an empty array.
+        #expect(!AccessibilityFetcher.accessibilityRequestKeys.contains(.customActions))
         #expect(
-            AccessibilityFetcher.accessibilityRequestKeys.union([.traits])
+            AccessibilityFetcher.accessibilityRequestKeys.union([.traits, .customActions])
                 == AccessibilityFetcher.accessibilityOutputKeys
         )
     }
@@ -74,6 +77,12 @@ struct AccessibilityFetcherTests {
         #expect(root["traits"] as? [String] == [])
         #expect(frame["traits"] == nil)
         #expect(child["traits"] as? [String] == ["Button"])
+
+        // custom_actions is no longer requested, so it is defaulted the same way traits is — the
+        // public schema keeps the key, and only the crashing computation is avoided.
+        #expect(root["custom_actions"] as? [String] == [])
+        #expect(frame["custom_actions"] == nil)
+        #expect(child["custom_actions"] as? [String] == [])
     }
 
     @Test("Distinguishes transient root-only responses from populated hierarchies")

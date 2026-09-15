@@ -381,6 +381,9 @@ struct AccessibilityFetcher {
         if element["type"] != nil, element["traits"] == nil {
             element["traits"] = [String]()
         }
+        if element["type"] != nil, element["custom_actions"] == nil {
+            element["custom_actions"] = [String]()
+        }
         return element
     }
 
@@ -407,5 +410,12 @@ struct AccessibilityFetcher {
     // AXe's former IDB serializer did not return traits. Xcode 27's private nested serializer also
     // returns an empty hierarchy when `.traits` is requested, so retain the existing public value
     // as an empty compatibility placeholder after requesting the safe subset on every Xcode version.
-    static let accessibilityRequestKeys = accessibilityOutputKeys.subtracting([.traits])
+    //
+    // `.customActions` is withheld for a harder reason: requesting it can CRASH the app under test.
+    // Serving the attribute makes UIAccessibility build the element's custom actions, and
+    // `_accessibilityAddToDragSessionCustomAction` performs a hit-test while doing so. On a screen
+    // holding a `UIPickerView` that hit-test walks the picker's recycled table cells and messages a
+    // freed one, taking the app down with EXC_BAD_ACCESS (pointer authentication failure) — from a
+    // READ, with no touch involved. Both keys keep their public value via the defaults above.
+    static let accessibilityRequestKeys = accessibilityOutputKeys.subtracting([.traits, .customActions])
 }
