@@ -421,5 +421,26 @@ struct AccessibilityFetcher {
     // holding a `UIPickerView` that hit-test walks the picker's recycled table cells and messages a
     // freed one, taking the app down with EXC_BAD_ACCESS (pointer authentication failure) — from a
     // READ, with no touch involved. Both keys keep their public value via the defaults above.
-    static let accessibilityRequestKeys = accessibilityOutputKeys.subtracting([.traits, .customActions])
+    static let withheldKeys: Set<FBAXKeys> = [.traits, .customActions]
+
+    /// The keys actually asked of the app. `AXE_AX_KEYS` narrows it for callers that read only a
+    /// few fields — every key omitted is work the app does not do, and the read is measurably
+    /// cheaper for it. Withheld keys can never be re-enabled this way; they are unsafe, not
+    /// merely expensive. An unrecognised or empty value leaves the default set alone.
+    static let accessibilityRequestKeys: Set<FBAXKeys> = {
+        let defaults = accessibilityOutputKeys.subtracting(withheldKeys)
+        guard let raw = ProcessInfo.processInfo.environment["AXE_AX_KEYS"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty
+        else {
+            return defaults
+        }
+
+        let wanted = Set(
+            raw.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .compactMap(FBAXKeys.init(rawValue:))
+        )
+
+        return wanted.isEmpty ? defaults : wanted.subtracting(withheldKeys)
+    }()
 }
