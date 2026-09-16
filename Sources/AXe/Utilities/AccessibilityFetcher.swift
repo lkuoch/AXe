@@ -285,12 +285,15 @@ struct AccessibilityFetcher {
         }
     }
 
-    /// `AXE_BROKER=0` turns the daemon off for a caller that wants the in-process path.
+    /// Opt-in with `AXE_BROKER=1`, because a daemon that answers wrongly is worse than a slow one.
+    // Measured: reads are 1.87x faster through it, but a hosted run failed five attempts in a row
+    // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
+    // with it on and passed without, so it stays off until that is understood.
     static let useBroker: Bool = {
         let raw = ProcessInfo.processInfo.environment["AXE_BROKER"]?
             .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        return !(raw == "0" || raw == "false" || raw == "no")
+        return raw == "1" || raw == "true" || raw == "yes"
     }()
 
     /// The daemon's side of a read: it already holds the target, so only the serialize remains.
