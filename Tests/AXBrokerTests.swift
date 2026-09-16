@@ -74,6 +74,14 @@ struct AXBrokerTests {
         #expect(ax.utf8.count < 104)
     }
 
+    @Test("Clearing the translator's caches is safe on a build that has no translator loaded")
+    func clearingCachesIsAlwaysSafe() throws {
+        // The private frameworks are not loaded in a unit test, so every lookup misses. It must
+        // return quietly rather than trap: a daemon that crashes on a read is worse than a slow one.
+        AXBroker.clearTranslationCaches()
+        AXBroker.clearTranslationCaches()
+    }
+
     private func makeEndpoint() throws -> String {
         try HIDBroker.endpointPath(
             simulatorUDID: UUID().uuidString,
