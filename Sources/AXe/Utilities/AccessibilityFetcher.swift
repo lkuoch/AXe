@@ -62,21 +62,29 @@ struct AccessibilityFetcher {
                 dependencies: recoveryDependencies
             ) {
                 if let point {
-                    return try await fetchAccessibilityInfoJSONData(from: target, at: point)
+                    return try await fetchAccessibilityInfoJSONData(
+                        from: target,
+                        at: point,
+                        keys: accessibilityRequestKeys
+                    )
                 }
-                return try await fetchFrontmostAccessibilityInfoJSONData(from: target)
+                return try await fetchFrontmostAccessibilityInfoJSONData(
+                    from: target,
+                    keys: accessibilityRequestKeys
+                )
             }
         }
     }
 
     private static func fetchAccessibilityInfoJSONData(
         from target: FBSimulator,
-        at point: AccessibilityPoint
+        at point: AccessibilityPoint,
+        keys: Set<FBAXKeys>
     ) async throws -> Data {
         try await retryingTransientPointFallback(at: point) {
             let accessibilityElement = try await target.accessibilityElement(at: point.cgPoint)
             defer { accessibilityElement.close() }
-            return try serializedAccessibilityData(from: accessibilityElement)
+            return try serializedAccessibilityData(from: accessibilityElement, keys: keys)
         }
     }
 
@@ -106,7 +114,10 @@ struct AccessibilityFetcher {
         return latestData
     }
 
-    private static func fetchFrontmostAccessibilityInfoJSONData(from target: FBSimulator) async throws -> Data {
+    private static func fetchFrontmostAccessibilityInfoJSONData(
+        from target: FBSimulator,
+        keys: Set<FBAXKeys>
+    ) async throws -> Data {
         var latestData: Data?
         for attempt in 0..<5 {
             // IDB's former `accessibilityElements(withNestedFormat:)` API also serialized the
@@ -117,7 +128,7 @@ struct AccessibilityFetcher {
             let data: Data
             do {
                 data = try await PhaseTiming.measure("axSerialize") {
-                    try serializedAccessibilityData(from: accessibilityElement)
+                    try serializedAccessibilityData(from: accessibilityElement, keys: keys)
                 }
                 accessibilityElement.close()
             } catch {
@@ -269,12 +280,15 @@ struct AccessibilityFetcher {
         process.waitUntilExit()
     }
 
-    private static func serializedAccessibilityData(from accessibilityElement: FBAccessibilityElement) throws -> Data {
+    private static func serializedAccessibilityData(
+        from accessibilityElement: FBAccessibilityElement,
+        keys: Set<FBAXKeys>
+    ) throws -> Data {
         let response = try PhaseTiming.measureSync("axAttributes") {
             try accessibilityElement.serialize(
                 with: FBAccessibilityRequestOptions(
                     nestedFormat: true,
-                    keys: accessibilityRequestKeys,
+                    keys: keys,
                     enableProfiling: PhaseTiming.isEnabled
                 )
             )
@@ -309,10 +323,10 @@ struct AccessibilityFetcher {
             dependencies: .live
         ) {
             if let point {
-                return try await fetchAccessibilityInfoJSONData(from: target, at: point)
+                return try await fetchAccessibilityInfoJSONData(from: target, at: point, keys: keys)
             }
 
-            return try await fetchFrontmostAccessibilityInfoJSONData(from: target)
+            return try await fetchFrontmostAccessibilityInfoJSONData(from: target, keys: keys)
         }
     }
 

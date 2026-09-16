@@ -265,16 +265,20 @@ enum HIDBroker {
         }
     }
 
+    /// `startupBudgetNanoseconds` is how long a caller will wait for a daemon that is not up yet.
+    // The HID path has no alternative and waits the full default; a read does, so it waits less.
+    // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
     static func connectToReadyBroker(
         simulatorUDID: String,
         endpoint: String,
         connector: (String) throws -> Int32,
         spawner: (String) throws -> Void,
         sleeper: (useconds_t) -> Void,
-        monotonicNow: () -> UInt64 = monotonicTimeNanoseconds
+        monotonicNow: () -> UInt64 = monotonicTimeNanoseconds,
+        startupBudgetNanoseconds: UInt64 = startupTimeoutNanoseconds
     ) throws -> Int32 {
         let startedAt = monotonicNow()
-        let deadlineResult = startedAt.addingReportingOverflow(startupTimeoutNanoseconds)
+        let deadlineResult = startedAt.addingReportingOverflow(startupBudgetNanoseconds)
         let deadline = deadlineResult.overflow ? UInt64.max : deadlineResult.partialValue
         func handshakeTimeout() throws -> Int {
             let now = monotonicNow()

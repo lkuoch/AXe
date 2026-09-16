@@ -20,6 +20,12 @@ enum AXBroker {
     /// Long enough to outlive the gaps between a test's steps, short enough not to outlive a run.
     private static let idleTimeoutMilliseconds: Int32 = 120_000
     private static let ioTimeoutMilliseconds = 30_000
+    /// How long a read waits for a daemon that is not up yet, before doing the work itself.
+    // A read has a fallback that costs ~300ms, so waiting the HID path's 30s is never right.
+    // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
+    private static let startupBudgetNanoseconds: UInt64 = 2_000_000_000
+    /// How long a failed start is remembered, so the budget is paid once rather than per read.
+    private static let unavailableForSeconds: TimeInterval = 120
     /// An AX tree is large; this is a sanity bound, not an expected size.
     private static let maximumFrameBytes = 64 * 1024 * 1024
 
@@ -54,6 +60,9 @@ enum AXBroker {
         else {
             throw CLIError.simulatorNotFound(udid: simulatorUDID)
         }
+
+        // Up and holding the set: whatever failure last marked this endpoint is now stale.
+        clearUnavailable(endpoint: endpoint)
 
         while true {
             var descriptor = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
@@ -102,7 +111,13 @@ enum AXBroker {
                 return
             }
 
+            // A daemon that serves a different key set than the caller asked for answers wrongly
+            // and silently, so an empty or unparseable set is refused rather than substituted.
             let keys = Set(request.keys.compactMap(FBAXKeys.init(rawValue:)))
+            guard !keys.isEmpty else {
+                try writeFrame(Data(), to: client)
+                return
+            }
             let point = request.x.flatMap { x in request.y.map { AccessibilityPoint(x: x, y: $0) } }
             let data = try await AccessibilityFetcher.serveFromBroker(
                 target: target,
@@ -128,13 +143,22 @@ enum AXBroker {
             return nil
         }
 
+        // A daemon that failed to start will fail again; without this every read in the run pays
+        // the budget again, which is how a broker makes a run slower than not having one.
+        // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
+        if isRecentlyUnavailable(endpoint: endpoint) {
+            return nil
+        }
+
         guard let client = try? HIDBroker.connectToReadyBroker(
             simulatorUDID: simulatorUDID,
             endpoint: endpoint,
             connector: HIDBroker.connect(to:),
             spawner: spawn(simulatorUDID:),
-            sleeper: { _ = usleep($0) }
+            sleeper: { _ = usleep($0) },
+            startupBudgetNanoseconds: startupBudgetNanoseconds
         ) else {
+            markUnavailable(endpoint: endpoint)
             return nil
         }
 
@@ -179,9 +203,44 @@ enum AXBroker {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
         process.arguments = ["ax-broker", "--udid", simulatorUDID]
+        // All three, like `spawnBroker`: an inherited stdin makes the daemon share the caller's
+        // terminal, and a caller that exits then takes the daemon's input with it.
+        process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
+    }
+
+    // MARK: - Remembering a daemon that will not start
+
+    private static func unavailableMarkerPath(endpoint: String) -> String { endpoint + ".dead" }
+
+    static func isRecentlyUnavailable(
+        endpoint: String,
+        now: Date = Date(),
+        attributes: (String) throws -> [FileAttributeKey: Any] =
+            { try FileManager.default.attributesOfItem(atPath: $0) }
+    ) -> Bool {
+        guard let marked = try? attributes(unavailableMarkerPath(endpoint: endpoint)),
+              let stamped = marked[.modificationDate] as? Date
+        else {
+            return false
+        }
+
+        return now.timeIntervalSince(stamped) < unavailableForSeconds
+    }
+
+    static func markUnavailable(endpoint: String) {
+        // Recreated rather than touched: the file's mtime is the stamp the read side reads back.
+        FileManager.default.createFile(
+            atPath: unavailableMarkerPath(endpoint: endpoint),
+            contents: Data(),
+            attributes: nil
+        )
+    }
+
+    static func clearUnavailable(endpoint: String) {
+        try? FileManager.default.removeItem(atPath: unavailableMarkerPath(endpoint: endpoint))
     }
 
     // MARK: - Frames
