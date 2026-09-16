@@ -37,6 +37,16 @@ struct AccessibilityFetcher {
         logger: AxeLogger,
         recoveryDependencies: AccessibilityRecoveryDependencies = .live
     ) async throws -> Data {
+        // A daemon that already holds the simulator set answers without paying for it again. It
+        // is best-effort by design: anything wrong with it falls through to the work below.
+        if useBroker, let served = AXBroker.read(
+            simulatorUDID: simulatorUDID,
+            point: point,
+            keys: accessibilityRequestKeys
+        ) {
+            return served
+        }
+
         let simulatorSet = try await PhaseTiming.measure("simulatorSet") {
             try await getSimulatorSet(deviceSetPath: nil, logger: logger, reporter: EmptyEventReporter.shared)
         }
@@ -272,6 +282,34 @@ struct AccessibilityFetcher {
         PhaseTiming.report(response.profilingData)
         return try PhaseTiming.measureSync("axJson") {
             try serializeAccessibilityInfo(addingCompatibilityDefaults(to: response.elements))
+        }
+    }
+
+    /// `AXE_BROKER=0` turns the daemon off for a caller that wants the in-process path.
+    static let useBroker: Bool = {
+        let raw = ProcessInfo.processInfo.environment["AXE_BROKER"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        return !(raw == "0" || raw == "false" || raw == "no")
+    }()
+
+    /// The daemon's side of a read: it already holds the target, so only the serialize remains.
+    @MainActor
+    static func serveFromBroker(
+        target: FBSimulator,
+        point: AccessibilityPoint?,
+        keys: Set<FBAXKeys>
+    ) async throws -> Data {
+        try await retryingAfterTestManagerRecovery(
+            simulatorUDID: target.udid,
+            logger: AxeLogger(),
+            dependencies: .live
+        ) {
+            if let point {
+                return try await fetchAccessibilityInfoJSONData(from: target, at: point)
+            }
+
+            return try await fetchFrontmostAccessibilityInfoJSONData(from: target)
         }
     }
 
