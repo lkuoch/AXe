@@ -101,10 +101,14 @@ struct AccessibilityFetcher {
         for attempt in 0..<5 {
             // IDB's former `accessibilityElements(withNestedFormat:)` API also serialized the
             // frontmost application internally. This explicit handle API preserves that scope.
-            let accessibilityElement = try await target.accessibilityElementForFrontmostApplication()
+            let accessibilityElement = try await PhaseTiming.measure("axHandle") {
+                try await target.accessibilityElementForFrontmostApplication()
+            }
             let data: Data
             do {
-                data = try serializedAccessibilityData(from: accessibilityElement)
+                data = try await PhaseTiming.measure("axSerialize") {
+                    try serializedAccessibilityData(from: accessibilityElement)
+                }
                 accessibilityElement.close()
             } catch {
                 accessibilityElement.close()
@@ -256,13 +260,19 @@ struct AccessibilityFetcher {
     }
 
     private static func serializedAccessibilityData(from accessibilityElement: FBAccessibilityElement) throws -> Data {
-        let response = try accessibilityElement.serialize(
-            with: FBAccessibilityRequestOptions(
-                nestedFormat: true,
-                keys: accessibilityRequestKeys
+        let response = try PhaseTiming.measureSync("axAttributes") {
+            try accessibilityElement.serialize(
+                with: FBAccessibilityRequestOptions(
+                    nestedFormat: true,
+                    keys: accessibilityRequestKeys,
+                    enableProfiling: PhaseTiming.isEnabled
+                )
             )
-        )
-        return try serializeAccessibilityInfo(addingCompatibilityDefaults(to: response.elements))
+        }
+        PhaseTiming.report(response.profilingData)
+        return try PhaseTiming.measureSync("axJson") {
+            try serializeAccessibilityInfo(addingCompatibilityDefaults(to: response.elements))
+        }
     }
 
     static func containsAccessibilityDescendant(in data: Data) throws -> Bool {

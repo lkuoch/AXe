@@ -1,4 +1,5 @@
 import Foundation
+import FBControlCore
 
 /// Where an invocation's time actually went, as one JSON line per phase on stderr.
 ///
@@ -20,6 +21,31 @@ enum PhaseTiming {
         return value == "1" || value == "true" || value == "yes"
     }()
 
+    /// Whether timing is on, so a caller can ask the AX layer for its own profile as well.
+    static var isEnabled: Bool { enabled }
+
+    /// The AX layer's own account of a read: how many elements it walked, how many attribute
+    /// fetches that cost, and how much of it went over XPC. Each attribute of each element is a
+    /// separate fetch, so this is what says whether a read is expensive because of the tree's size
+    /// or the number of keys asked of it.
+    static func report(_ profile: FBAccessibilityProfilingData?) {
+        guard enabled, let profile else {
+            return
+        }
+
+        let line = [
+            "{\"axe\":\"axprofile\"",
+            "\"command\":\"\(escape(command))\"",
+            "\"elements\":\(profile.elementCount)",
+            "\"attributeFetches\":\(profile.attributeFetchCount)",
+            "\"xpcCalls\":\(profile.xpcCallCount)",
+            "\"xpcMs\":\(String(format: "%.1f", profile.totalXPCDuration * 1000))",
+            "\"translationMs\":\(String(format: "%.1f", profile.translationDuration * 1000))}",
+        ].joined(separator: ",")
+
+        FileHandle.standardError.write(Data("\(line)\n".utf8))
+    }
+
     /// The subcommand being timed, set once at start-up so every phase line can name it.
     nonisolated(unsafe) static var command: String = "axe"
 
@@ -33,6 +59,23 @@ enum PhaseTiming {
         let started = DispatchTime.now().uptimeNanoseconds
         do {
             let result = try await body()
+            emit(phase: phase, started: started, failed: false)
+            return result
+        } catch {
+            emit(phase: phase, started: started, failed: true)
+            throw error
+        }
+    }
+
+    /// The synchronous twin, for a phase that is not `async`.
+    static func measureSync<T>(_ phase: String, _ body: () throws -> T) rethrows -> T {
+        guard enabled else {
+            return try body()
+        }
+
+        let started = DispatchTime.now().uptimeNanoseconds
+        do {
+            let result = try body()
             emit(phase: phase, started: started, failed: false)
             return result
         } catch {
