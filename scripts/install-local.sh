@@ -28,14 +28,27 @@ fi
 
 echo "installing $(cd "${REPO_ROOT}" && git describe --tags --always --dirty) -> ${WRAPPER}"
 
-$SUDO rm -rf "${LIBEXEC}"
-$SUDO mkdir -p "${LIBEXEC}" "${PREFIX}/bin"
+# Staged, then swapped: a host mid-run resolves `axe` through the wrapper at any instant, so the
+# old tree must stay whole until the new one is complete. Deleting first left a window in which
+# every command ENOENTed, and it once killed three runs.
+STAGING="${LIBEXEC}.incoming.$$"
+$SUDO rm -rf "${STAGING}"
+$SUDO mkdir -p "${STAGING}" "${PREFIX}/bin"
 # -R so Frameworks and the resource bundle land beside the binary, which is what @executable_path
 # resolves against; without them every command fails to load FBSimulatorControl.
-$SUDO cp -R "${SOURCE}/axe" "${SOURCE}/Frameworks" "${LIBEXEC}/"
+$SUDO cp -R "${SOURCE}/axe" "${SOURCE}/Frameworks" "${STAGING}/"
 if [[ -d "${SOURCE}/AXe_AXe.bundle" ]]; then
-  $SUDO cp -R "${SOURCE}/AXe_AXe.bundle" "${LIBEXEC}/"
+  $SUDO cp -R "${SOURCE}/AXe_AXe.bundle" "${STAGING}/"
 fi
+
+# `mv` over a directory is not atomic, so the old tree is moved aside rather than deleted under a
+# caller, and only removed once the new one is in place.
+RETIRED="${LIBEXEC}.retired.$$"
+if [[ -d "${LIBEXEC}" ]]; then
+  $SUDO mv "${LIBEXEC}" "${RETIRED}"
+fi
+$SUDO mv "${STAGING}" "${LIBEXEC}"
+$SUDO rm -rf "${RETIRED}"
 
 $SUDO tee "${WRAPPER}" >/dev/null <<WRAP
 #!/bin/bash
