@@ -39,11 +39,14 @@ struct AccessibilityFetcher {
     ) async throws -> Data {
         // A daemon that already holds the simulator set answers without paying for it again. It
         // is best-effort by design: anything wrong with it falls through to the work below.
-        if useBroker, let served = AXBroker.read(
-            simulatorUDID: simulatorUDID,
-            point: point,
-            keys: accessibilityRequestKeys
-        ) {
+        let servedByBroker = useBroker
+            ? AXBroker.read(
+                simulatorUDID: simulatorUDID,
+                point: point,
+                keys: accessibilityRequestKeys
+            )
+            : nil
+        if let served = servedByBroker, !verifyBroker {
             // Said out loud: the fallback is silent, so a caller cannot otherwise tell a read the
             // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
             // daemon answered from one it quietly did itself.
@@ -59,7 +62,7 @@ struct AccessibilityFetcher {
             throw CLIError.simulatorNotFound(udid: simulatorUDID)
         }
 
-        return try await PhaseTiming.measure("axRead") {
+        let direct = try await PhaseTiming.measure("axRead") {
             try await retryingAfterTestManagerRecovery(
                 simulatorUDID: simulatorUDID,
                 logger: logger,
@@ -78,7 +81,28 @@ struct AccessibilityFetcher {
                 )
             }
         }
+
+        // Both answers in hand: say whether they agree, and hand back the one that cannot be stale.
+        // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
+        if let served = servedByBroker {
+            PhaseTiming.reportBrokerAgreement(broker: served, direct: direct)
+        }
+
+        return direct
     }
+
+    /// Read through the daemon AND directly, compare, and return the direct answer.
+    ///
+    /// The daemon makes a run measurably faster and then fails it on trees that stop advancing. That
+    /// is only diagnosable while the run still works, so this pays for both reads, reports whether
+    /// they agreed, and trusts the short-lived process. `AXE_BROKER_VERIFY=1`, and slower than no
+    /// daemon at all — a diagnostic, never a way to run.
+    static let verifyBroker: Bool = {
+        let raw = ProcessInfo.processInfo.environment["AXE_BROKER_VERIFY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        return raw == "1" || raw == "true" || raw == "yes"
+    }()
 
     private static func fetchAccessibilityInfoJSONData(
         from target: FBSimulator,

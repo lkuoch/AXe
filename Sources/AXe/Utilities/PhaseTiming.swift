@@ -61,6 +61,30 @@ enum PhaseTiming {
         FileHandle.standardError.write(Data("\(line)\n".utf8))
     }
 
+    /// Whether the daemon's answer matched a direct read taken moments later, and by how much.
+    ///
+    /// Equal bytes with different content is the interesting case: the same tree, serialized
+    /// differently (AXe emits object keys in a varying order), which is NOT staleness. A different
+    /// length is a genuinely different screen.
+    static func reportBrokerAgreement(broker: Data, direct: Data) {
+        guard enabled else {
+            return
+        }
+
+        // `sameLength` is the signal. `identical` is almost always false even for one unchanged
+        // screen, because the key order varies per read, so it must not be read as disagreement.
+        let line = [
+            "{\"axe\":\"axbrokeragree\"",
+            "\"command\":\"\(escape(command))\"",
+            "\"sameLength\":\(broker.count == direct.count)",
+            "\"identical\":\(broker == direct)",
+            "\"brokerBytes\":\(broker.count)",
+            "\"directBytes\":\(direct.count)}",
+        ].joined(separator: ",")
+
+        FileHandle.standardError.write(Data("\(line)\n".utf8))
+    }
+
     /// The subcommand being timed, set once at start-up so every phase line can name it.
     nonisolated(unsafe) static var command: String = "axe"
 
