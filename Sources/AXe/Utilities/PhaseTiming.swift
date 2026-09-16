@@ -66,7 +66,7 @@ enum PhaseTiming {
     /// Equal bytes with different content is the interesting case: the same tree, serialized
     /// differently (AXe emits object keys in a varying order), which is NOT staleness. A different
     /// length is a genuinely different screen.
-    static func reportBrokerAgreement(broker: Data, direct: Data) {
+    static func reportBrokerAgreement(broker: Data, direct: Data, control: Bool = false) {
         guard enabled else {
             return
         }
@@ -76,6 +76,7 @@ enum PhaseTiming {
         let line = [
             "{\"axe\":\"axbrokeragree\"",
             "\"command\":\"\(escape(command))\"",
+            "\"control\":\(control)",
             "\"sameLength\":\(broker.count == direct.count)",
             "\"identical\":\(broker == direct)",
             "\"brokerBytes\":\(broker.count)",

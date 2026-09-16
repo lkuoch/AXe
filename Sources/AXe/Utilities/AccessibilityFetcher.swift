@@ -46,6 +46,18 @@ struct AccessibilityFetcher {
                 keys: accessibilityRequestKeys
             )
             : nil
+        // The control. Under verify with no daemon, the FIRST read is direct too, so the comparison
+        // measures how much the screen moves between two reads — the rate any daemon must beat.
+        // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
+        let controlFirstRead: Data? =
+            verifyBroker && !useBroker
+                ? try? await directRead(
+                    simulatorUDID: simulatorUDID,
+                    point: point,
+                    logger: logger,
+                    recoveryDependencies: recoveryDependencies
+                )
+                : nil
         if let served = servedByBroker, !verifyBroker {
             // Said out loud: the fallback is silent, so a caller cannot otherwise tell a read the
             // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
@@ -84,8 +96,12 @@ struct AccessibilityFetcher {
 
         // Both answers in hand: say whether they agree, and hand back the one that cannot be stale.
         // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
-        if let served = servedByBroker {
-            PhaseTiming.reportBrokerAgreement(broker: served, direct: direct)
+        if let first = servedByBroker ?? controlFirstRead {
+            PhaseTiming.reportBrokerAgreement(
+                broker: first,
+                direct: direct,
+                control: servedByBroker == nil
+            )
         }
 
         return direct
@@ -103,6 +119,44 @@ struct AccessibilityFetcher {
 
         return raw == "1" || raw == "true" || raw == "yes"
     }()
+
+    /// One direct read, by the same route the verified read uses, so the control is comparable.
+    // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
+    private static func directRead(
+        simulatorUDID: String,
+        point: AccessibilityPoint?,
+        logger: AxeLogger,
+        recoveryDependencies: AccessibilityRecoveryDependencies
+    ) async throws -> Data {
+        let simulatorSet = try await getSimulatorSet(
+            deviceSetPath: nil,
+            logger: logger,
+            reporter: EmptyEventReporter.shared
+        )
+        guard let target = simulatorSet.allSimulators.first(where: { $0.udid == simulatorUDID })
+        else {
+            throw CLIError.simulatorNotFound(udid: simulatorUDID)
+        }
+
+        return try await retryingAfterTestManagerRecovery(
+            simulatorUDID: simulatorUDID,
+            logger: logger,
+            dependencies: recoveryDependencies
+        ) {
+            if let point {
+                return try await fetchAccessibilityInfoJSONData(
+                    from: target,
+                    at: point,
+                    keys: accessibilityRequestKeys
+                )
+            }
+
+            return try await fetchFrontmostAccessibilityInfoJSONData(
+                from: target,
+                keys: accessibilityRequestKeys
+            )
+        }
+    }
 
     private static func fetchAccessibilityInfoJSONData(
         from target: FBSimulator,
