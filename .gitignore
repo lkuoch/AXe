@@ -56,3 +56,10 @@ Temporary Items
 # Other
 /keys
 /buildServer.json
+
+# Local build logs and products — `scripts/build.sh` output, never committed.
+build*.log
+build_products/
+build_derived_data/
+idb_checkout/
+test.log
