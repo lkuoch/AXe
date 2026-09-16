@@ -46,6 +46,21 @@ enum PhaseTiming {
         FileHandle.standardError.write(Data("\(line)\n".utf8))
     }
 
+    /// Marks a read the daemon answered. Its absence means the caller did the read itself.
+    static func reportBrokerServed(bytes: Int) {
+        guard enabled else {
+            return
+        }
+
+        let line = [
+            "{\"axe\":\"axbrokerserved\"",
+            "\"command\":\"\(escape(command))\"",
+            "\"bytes\":\(bytes)}",
+        ].joined(separator: ",")
+
+        FileHandle.standardError.write(Data("\(line)\n".utf8))
+    }
+
     /// The subcommand being timed, set once at start-up so every phase line can name it.
     nonisolated(unsafe) static var command: String = "axe"
 

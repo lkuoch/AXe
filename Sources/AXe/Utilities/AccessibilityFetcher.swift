@@ -44,6 +44,10 @@ struct AccessibilityFetcher {
             point: point,
             keys: accessibilityRequestKeys
         ) {
+            // Said out loud: the fallback is silent, so a caller cannot otherwise tell a read the
+            // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
+            // daemon answered from one it quietly did itself.
+            PhaseTiming.reportBrokerServed(bytes: served.count)
             return served
         }
 

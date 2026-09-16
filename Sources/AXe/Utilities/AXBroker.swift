@@ -38,48 +38,6 @@ enum AXBroker {
         let y: Double?
     }
 
-    // MARK: - The translator's cache
-
-    /// Empty `AXPTranslator`'s translation caches, which are per-process and never expire.
-    ///
-    /// `AXPTranslator_iOS` holds `_translationCache` and `_backTranslationCache`, and
-    /// `AXPTranslator.sharedInstance()` is a process-wide singleton — so is the dispatcher
-    /// FBSimulatorControl builds on it. A short-lived `axe` starts with both empty and cannot serve
-    /// a stale element; a daemon accumulates them for its whole life. That is the shape of the
-    /// failure this daemon was disabled for: five hosted attempts, two of them reporting the screen
-    /// "unchanged for 16 polls" while the app had in fact moved on.
-    ///
-    /// Reached by name because idb imports `AccessibilityPlatformTranslation` as
-    /// `@_implementationOnly`, so the type is not visible here. Every step is optional: a build
-    /// where the class, the selector or the type is not what this expects clears nothing and says
-    /// nothing, which leaves the daemon exactly as it was.
-    ///
-    /// Safe to call only between reads. The daemon answers one request at a time on the main actor,
-    /// so nothing is walking the cache while this empties it.
-    static func clearTranslationCaches() {
-        guard let translatorClass = NSClassFromString("AXPTranslator") as? NSObject.Type else {
-            return
-        }
-
-        let sharedSelector = NSSelectorFromString("sharedInstance")
-        guard translatorClass.responds(to: sharedSelector),
-              let shared = translatorClass.perform(sharedSelector)?.takeUnretainedValue() as? NSObject
-        else {
-            return
-        }
-
-        for name in ["translationCache", "backTranslationCache"] {
-            let selector = NSSelectorFromString(name)
-            guard shared.responds(to: selector),
-                  let cache = shared.perform(selector)?.takeUnretainedValue() as? NSMutableDictionary
-            else {
-                continue
-            }
-
-            cache.removeAllObjects()
-        }
-    }
-
     // MARK: - Serving
 
     @MainActor
@@ -161,9 +119,6 @@ enum AXBroker {
                 return
             }
             let point = request.x.flatMap { x in request.y.map { AccessibilityPoint(x: x, y: $0) } }
-            // A held process would otherwise answer from the last read's elements.
-            // see: http://localhost:3030/rfcs/proposal/0038-fast-ios-runs
-            clearTranslationCaches()
             let data = try await AccessibilityFetcher.serveFromBroker(
                 target: target,
                 point: point,
